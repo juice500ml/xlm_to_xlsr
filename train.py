@@ -1,25 +1,15 @@
-import argparse
 import json
-import random
-import re
-import string
-from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from functools import partial
 
 import hydra
 import numpy as np
-import pandas as pd
-import torch
-from datasets import Audio, load_dataset, load_metric
-from tqdm import tqdm
-from transformers import (Trainer, TrainingArguments, Wav2Vec2CTCTokenizer,
-                          Wav2Vec2FeatureExtractor, Wav2Vec2ForCTC,
-                          Wav2Vec2Processor)
+from datasets import load_metric
+from omegaconf import OmegaConf
+from transformers import (AutoTokenizer, Trainer, TrainingArguments)
 
-
-from data_utils import load_datasets, get_processor, get_output_dir, cleanse_dataset, DataCollatorCTCWithPadding
-
+from data_utils import (DataCollatorCTCWithPadding, cleanse_dataset,
+                        get_output_dir, get_processor, load_datasets)
+from model_utils import Wav2Vec2ForDistill, DistillTrainer
 
 
 def get_compute_metrics(processor):
@@ -51,16 +41,25 @@ def main(cfg):
 
     (output_dir / "processor").mkdir(exist_ok=False, parents=False)
     processor = get_processor(output_dir / "processor", train_ds, eval_ds)
+    lm_tokenizer = AutoTokenizer.from_pretrained("xlm-roberta-base")
 
-    train_ds, eval_ds, test_ds = cleanse_dataset(train_ds, processor), cleanse_dataset(eval_ds, processor), cleanse_dataset(test_ds, processor)
+    _cleanse_ds = partial(cleanse_dataset, processor=processor, lm_tokenizer=lm_tokenizer)
+    train_ds, eval_ds, test_ds = _cleanse_ds(train_ds), _cleanse_ds(eval_ds), _cleanse_ds(test_ds)
     print(f"Preparing done: {len(train_ds)}, {len(eval_ds)}, {len(test_ds)}")
 
-    data_collator = DataCollatorCTCWithPadding(processor=processor, padding=True)
+    data_collator = DataCollatorCTCWithPadding(
+        processor=processor,
+        lm_tokenizer=lm_tokenizer,
+        max_length=160000,
+        max_length_labels=100,
+        max_length_lm=100,
+    )
 
-    model = Wav2Vec2ForCTC.from_pretrained(
+    model = Wav2Vec2ForDistill.from_pretrained(
         **cfg.xlsr,
         pad_token_id=processor.tokenizer.pad_token_id,
-        vocab_size=len(processor.tokenizer)
+        vocab_size=len(processor.tokenizer),
+        task_specific_params=OmegaConf.to_container(cfg.distill, resolve=True)
     )
     model.freeze_feature_extractor()
 
@@ -69,7 +68,7 @@ def main(cfg):
         output_dir=output_dir,
         load_best_model_at_end=True,
     )
-    trainer = Trainer(
+    trainer = DistillTrainer(
         model=model,
         data_collator=data_collator,
         args=training_args,

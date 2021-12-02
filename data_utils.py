@@ -1,17 +1,17 @@
-from dataclasses import dataclass
 import json
 import random
 import sys
 import unicodedata
 from collections import Counter
-from pathlib import Path
+from dataclasses import dataclass
 from functools import partial
+from pathlib import Path
 from typing import Optional, Union
 
 import pandas as pd
 from datasets import Audio, load_dataset
-from transformers import (Wav2Vec2CTCTokenizer, Wav2Vec2FeatureExtractor,
-                          Wav2Vec2Processor)
+from transformers import (AutoTokenizer, Wav2Vec2CTCTokenizer,
+                          Wav2Vec2FeatureExtractor, Wav2Vec2Processor)
 
 
 def get_output_dir(cfg):
@@ -40,17 +40,22 @@ def get_processor(save_dir, train_ds, eval_ds):
     with open(save_dir / "vocab.json", "w") as vocab_file:
         json.dump(vocab_dict, vocab_file)
 
-    tokenizer = Wav2Vec2CTCTokenizer(save_dir / "vocab.json", unk_token="[UNK]", pad_token="[PAD]", word_delimiter_token="|")
-    feature_extractor = Wav2Vec2FeatureExtractor(feature_size=1, sampling_rate=16000, padding_value=0.0, do_normalize=True, return_attention_mask=True)
+    tokenizer = Wav2Vec2CTCTokenizer(
+        save_dir / "vocab.json", unk_token="[UNK]", pad_token="[PAD]", word_delimiter_token="|")
+    feature_extractor = Wav2Vec2FeatureExtractor(
+        feature_size=1, sampling_rate=16000, padding_value=0.0, do_normalize=True, return_attention_mask=True)
     processor = Wav2Vec2Processor(feature_extractor=feature_extractor, tokenizer=tokenizer)
     processor.save_pretrained(save_dir)
 
     return processor
 
 
-def cleanse_dataset(ds, processor):
+def cleanse_dataset(ds, processor, lm_tokenizer):
     ds = ds.cast_column("audio", Audio(sampling_rate=16_000))
-    # ds = ds.filter(filter_too_long_audio, num_proc=1)
+
+    print(f"Original dataset size: {len(ds)}")
+    ds = ds.filter(filter_too_long_audio, num_proc=1)
+    print(f"Filtered dataset size: {len(ds)}")
 
     rand_int = random.randint(0, len(ds) - 1)
 
@@ -58,28 +63,30 @@ def cleanse_dataset(ds, processor):
     print("Input array shape:", ds[rand_int]["audio"]["array"].shape)
     print("Sampling rate:", ds[rand_int]["audio"]["sampling_rate"])
 
-    ds = ds.map(partial(prepare_each_batch, processor=processor), remove_columns=ds.column_names, num_proc=1)
+    ds = ds.map(
+        partial(prepare_each_batch, processor=processor, lm_tokenizer=lm_tokenizer),
+        remove_columns=ds.column_names, num_proc=1)
+
     return ds
 
 
 @dataclass
 class DataCollatorCTCWithPadding:
     processor: Wav2Vec2Processor
-    padding: Union[bool, str] = True
+    lm_tokenizer: AutoTokenizer
     max_length: Optional[int] = None
     max_length_labels: Optional[int] = None
+    max_length_lm: Optional[int] = None
     pad_to_multiple_of: Optional[int] = None
     pad_to_multiple_of_labels: Optional[int] = None
 
     def __call__(self, features):
-        # split inputs and labels since they have to be of different lenghts and need
-        # different padding methods
         input_features = [{"input_values": feature["input_values"]} for feature in features]
         label_features = [{"input_ids": feature["labels"]} for feature in features]
 
         batch = self.processor.pad(
             input_features,
-            padding=self.padding,
+            padding='max_length',
             max_length=self.max_length,
             pad_to_multiple_of=self.pad_to_multiple_of,
             return_tensors="pt",
@@ -87,7 +94,7 @@ class DataCollatorCTCWithPadding:
         with self.processor.as_target_processor():
             labels_batch = self.processor.pad(
                 label_features,
-                padding=self.padding,
+                padding='max_length',
                 max_length=self.max_length_labels,
                 pad_to_multiple_of=self.pad_to_multiple_of_labels,
                 return_tensors="pt",
@@ -95,9 +102,19 @@ class DataCollatorCTCWithPadding:
 
         # replace padding with -100 to ignore loss correctly
         labels = labels_batch["input_ids"].masked_fill(labels_batch.attention_mask.ne(1), -100)
-
         batch["labels"] = labels
-        # print(batch)
+
+        # Prepare XLM
+        lm_input_features = [{'input_ids': feature['lm_input_ids']} for feature in features]
+        lm_batch = self.lm_tokenizer.pad(
+            lm_input_features,
+            padding='max_length',
+            max_length=self.max_length_lm,
+            return_tensors='pt',
+        )
+
+        batch["lm_input_ids"] = lm_batch["input_ids"]
+        batch["lm_attention_mask"] = lm_batch["attention_mask"]
 
         return batch
 
@@ -117,7 +134,10 @@ def show_random_elements(dataset, num_examples=10):
 
 def remove_special_characters(
     batch,
-    punctuation_table=dict.fromkeys(i for i in range(sys.maxunicode) if (not unicodedata.category(chr(i)).startswith("L")) and (chr(i) != ' '))
+    punctuation_table=dict.fromkeys(
+        i for i in range(sys.maxunicode)
+        if (not unicodedata.category(chr(i)).startswith("L")) and (chr(i) != ' ')
+    )
 ):
     batch["sentence"] = unicodedata.normalize("NFKC", batch["sentence"])
     batch["sentence"] = batch["sentence"].translate(punctuation_table).lower() + " "
@@ -125,7 +145,7 @@ def remove_special_characters(
 
 
 def filter_too_long_audio(batch):
-    return batch["audio"]["array"].shape[0] * batch["audio"]["sampling_rate"] >= 30
+    return len(batch["audio"]["array"]) <= (10 * batch["audio"]["sampling_rate"])
 
 
 def extract_all_chars(batch):
@@ -162,12 +182,14 @@ def get_vocab(train_dataset, test_dataset, threshold=0.9999):
     return vocab_dict
 
 
-def prepare_each_batch(batch, processor):
+def prepare_each_batch(batch, processor, lm_tokenizer):
     audio = batch["audio"]
-
-    # batched output is "un-batched"
     batch["input_values"] = processor(audio["array"], sampling_rate=audio["sampling_rate"]).input_values[0]
 
     with processor.as_target_processor():
         batch["labels"] = processor(batch["sentence"]).input_ids
+
+    lm_input = lm_tokenizer(batch["sentence"])
+    batch["lm_input_ids"] = lm_input["input_ids"]
+
     return batch
