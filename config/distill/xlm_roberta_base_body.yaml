@@ -8,6 +8,7 @@ attn_loss: 0.0
 feat_loss: 1.0
 
 # w2v2: 25, xlm-roberta-base: 13
+name: xlm_roberta_base_body
 feat_target:
   - lm_index: 6
     sm_index: 12

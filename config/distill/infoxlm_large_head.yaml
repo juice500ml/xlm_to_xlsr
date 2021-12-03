@@ -1,0 +1,14 @@
+lm_name: microsoft/infoxlm-large
+lm_attn_size: 100
+sm_attn_size: 499
+lm_feat_size: 1024
+sm_feat_size: 1024
+
+attn_loss: 0.0
+feat_loss: 1.0
+
+# w2v2: 25, xlm-roberta-base: 25
+name: xlm_roberta_large_head
+feat_target:
+  - lm_index: 24
+    sm_index: 24

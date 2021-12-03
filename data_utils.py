@@ -15,7 +15,7 @@ from transformers import (AutoTokenizer, Wav2Vec2CTCTokenizer,
 
 
 def get_output_dir(cfg):
-    p = Path(f"./runs/{cfg.dataset.name}-{cfg.dataset.language}")
+    p = Path(f"./runs/{cfg.dataset.name}-{cfg.dataset.language}-{cfg.distill.name}-{cfg.distill.feat_loss}")
     assert not p.exists()
     p.mkdir(parents=True)
     return p

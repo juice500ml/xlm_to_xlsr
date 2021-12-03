@@ -78,12 +78,15 @@ def main(cfg):
         tokenizer=processor.feature_extractor,
     )
     trainer.train()
+
     preds = trainer.predict(test_dataset=test_ds)
+    trainer.log(preds.metrics)
+
     (output_dir / "outputs").mkdir(exist_ok=True, parents=True)
     with open(output_dir / "outputs" / "metrics.json", "w") as f:
         json.dump(preds.metrics, f)
     np.save(output_dir / "outputs" / "preds.pkl", preds.predictions)
-    np.save(output_dir / "outputs" / "labels.pkl", preds.labels)
+    np.save(output_dir / "outputs" / "label_ids.pkl", preds.label_ids)
 
 
 if __name__ == "__main__":
