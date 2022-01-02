@@ -9,7 +9,7 @@ seed: 42
 evaluation_strategy: steps
 save_strategy: steps
 save_steps: 1000
-eval_steps: 10
+eval_steps: 1000
 metric_for_best_model: wer
 greater_is_better: False
 save_total_limit: 2
@@ -19,13 +19,13 @@ fp16: True
 fp16_full_eval: True
 
 # https://github.com/pytorch/fairseq/tree/7f5ec30/examples/wav2vec/xlsr
-per_device_train_batch_size: 8  # Need 3 GPUs for batch_size=24
+per_device_train_batch_size: 12  # Need 2 GPUs for batch_size=24
 per_device_eval_batch_size: 16
 gradient_accumulation_steps: 1
 
 # Inside the paper:
 # We determine the best learning rates setting in [2e-5, 6e-5] based on dev set error rate
-learning_rate: 6e-5
+learning_rate: 2e-5
 
 # https://github.com/pytorch/fairseq/blob/7f5ec30/examples/wav2vec/xlsr/config/finetune.yaml#L44-L47
 adam_beta1: 0.9

@@ -23,7 +23,13 @@ def get_output_dir(cfg):
 
 def load_datasets(name, language):
     def _common_voice_process(sp, lang):
-        ds = load_dataset("common_voice", lang, split=sp, cache_dir="/data/dataset/public/huggingface_datasets")
+        ds = load_dataset(
+            "common_voice",
+            lang,
+            split=sp,
+            cache_dir="/data/dataset/public/huggingface_datasets",
+            # download_mode="reuse_cache_if_exists",
+        )
         ds = ds.remove_columns(["accent", "age", "client_id", "down_votes", "gender", "locale", "segment", "up_votes"])
         ds = ds.map(remove_special_characters)
         show_random_elements(ds.remove_columns(["path", "audio"]))
@@ -53,10 +59,6 @@ def get_processor(save_dir, train_ds, eval_ds):
 def cleanse_dataset(ds, processor, lm_tokenizer):
     ds = ds.cast_column("audio", Audio(sampling_rate=16_000))
 
-    print(f"Original dataset size: {len(ds)}")
-    ds = ds.filter(filter_too_long_audio, num_proc=1)
-    print(f"Filtered dataset size: {len(ds)}")
-
     rand_int = random.randint(0, len(ds) - 1)
 
     print("Target text:", ds[rand_int]["sentence"])
@@ -66,6 +68,10 @@ def cleanse_dataset(ds, processor, lm_tokenizer):
     ds = ds.map(
         partial(prepare_each_batch, processor=processor, lm_tokenizer=lm_tokenizer),
         remove_columns=ds.column_names, num_proc=1)
+
+    print(f"Original dataset size: {len(ds)}")
+    ds = ds.filter(filter_too_long_audio, num_proc=1)
+    print(f"Filtered dataset size: {len(ds)}")
 
     return ds
 
@@ -145,7 +151,9 @@ def remove_special_characters(
 
 
 def filter_too_long_audio(batch):
-    return len(batch["audio"]["array"]) <= (10 * batch["audio"]["sampling_rate"])
+    return (len(batch["input_values"]) <= 160000) \
+        and (len(batch["lm_input_ids"]) <= 100) \
+        and (len(batch["labels"]) <= 100)
 
 
 def extract_all_chars(batch):
