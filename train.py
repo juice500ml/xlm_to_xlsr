@@ -41,7 +41,7 @@ def main(cfg):
 
     (output_dir / "processor").mkdir(exist_ok=False, parents=False)
     processor = get_processor(output_dir / "processor", train_ds, eval_ds)
-    lm_tokenizer = AutoTokenizer.from_pretrained("xlm-roberta-base")
+    lm_tokenizer = AutoTokenizer.from_pretrained(cfg.distill.lm_name)
 
     _cleanse_ds = partial(cleanse_dataset, processor=processor, lm_tokenizer=lm_tokenizer)
     train_ds, eval_ds, test_ds = _cleanse_ds(train_ds), _cleanse_ds(eval_ds), _cleanse_ds(test_ds)

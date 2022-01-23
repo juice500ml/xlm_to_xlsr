@@ -1,3 +1,4 @@
 name: vanilla
+lm_name: xlm-roberta-base
 attn_loss: 0.0
 feat_loss: 0.0
