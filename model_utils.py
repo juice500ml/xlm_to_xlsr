@@ -139,7 +139,7 @@ class Wav2Vec2ForDistill(Wav2Vec2ForCTC):
                         logit_mask[sm_length:] = False
                         if self._interpolation_do_filter:
                             sm_mask = ((sm_logit.argmax(1) < (self._vocab_size - 2)) & logit_mask)
-                            sm_mask = sm_mask if sm_mask.sum() > 0 else logit_mask
+                            sm_mask = sm_mask if sm_mask.sum() > 1 else logit_mask
                         else:
                             sm_mask = logit_mask
 
