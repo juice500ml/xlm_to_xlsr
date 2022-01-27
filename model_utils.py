@@ -11,11 +11,10 @@ from transformers.file_utils import ModelOutput
 class DistillTrainer(Trainer):
     def compute_loss(self, model, inputs, return_outputs=False):
         loss, outputs = super().compute_loss(model, inputs, return_outputs=True)
-        # if self.control.should_log:
-        #     self.log({
-        #         'ctc_loss': outputs.ctc_loss.item(),
-        #         'feat_loss': outputs.feat_loss.item(),
-        #     })
+        self.log({
+            'ctc_loss': outputs.ctc_loss.mean().item(),
+            'feat_loss': outputs.feat_loss.mean().item(),
+        })
         return (loss, {'logits': outputs.logits}) if return_outputs else loss
 
 
@@ -36,6 +35,7 @@ class Wav2Vec2ForDistill(Wav2Vec2ForCTC):
         self.wav2vec2 = Wav2Vec2Model(config)
         self.dropout = nn.Dropout(config.final_dropout)
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size)
+        self._vocab_size = config.vocab_size
 
         cfg = config.task_specific_params
         self._train_feat_loss = cfg['feat_loss'] > 0.0
@@ -48,26 +48,20 @@ class Wav2Vec2ForDistill(Wav2Vec2ForCTC):
             self.lm = AutoModelForMaskedLM.from_pretrained(cfg['lm_name']).eval()
 
         if self._train_feat_loss:
-            self.temporal_adapter = nn.Parameter(torch.empty(
-                cfg['lm_attn_size'], cfg['sm_attn_size']
-            ))
-            self.feat_adapters = nn.ParameterList([
-                nn.Parameter(torch.empty(
-                    cfg['lm_feat_size'], cfg['sm_feat_size']))
-                for _ in cfg['feat_target']
-            ])
-            nn.init.kaiming_uniform_(self.temporal_adapter, a=math.sqrt(5))
-            for adapter in self.feat_adapters:
-                nn.init.kaiming_uniform_(adapter, a=math.sqrt(5))
+            self._interpolation_do_filter = cfg['interpolation']['filter_out_pad']
+            self.temporal_adapter_kwargs = dict(
+                mode=cfg['interpolation']['mode'],
+                align_corners=True if cfg['interpolation']['mode'] == 'linear' else None)
+            self.feat_adapter = nn.Parameter(torch.empty(
+                    cfg['sm_feat_size'], cfg['lm_feat_size']))
+            nn.init.kaiming_uniform_(self.feat_adapter, a=math.sqrt(5))
 
-            self.feat_adapters_configs = [
-                {'lm_index': item['lm_index'], 'sm_index': item['sm_index']}
-                for item in cfg['feat_target']
-            ]
+            assert len(cfg['feat_target']) == 1
+            self.feat_adapter_config = {
+                'lm_index': cfg['feat_target'][0]['lm_index'], 'sm_index': cfg['feat_target'][0]['sm_index']}
 
         if self._train_attn_loss:
             raise NotImplemented
-
 
     def forward(
         self,
@@ -134,15 +128,40 @@ class Wav2Vec2ForDistill(Wav2Vec2ForCTC):
 
                 if self._train_feat_loss:
                     feat_loss = 0.0
-                    for adapter, cfg in zip(self.feat_adapters, self.feat_adapters_configs):
-                        feat = lm_outputs['hidden_states'][cfg['lm_index']]
-                        temporal_adapted_feat = torch.tensordot(feat, self.temporal_adapter, dims=([1], [0]))
-                        adapted_feat = torch.tensordot(temporal_adapted_feat, adapter, dims=([1], [0]))
+                    sm_feat = outputs['hidden_states'][self.feat_adapter_config['sm_index']]
+                    lm_feat = lm_outputs['hidden_states'][self.feat_adapter_config['lm_index']]
 
+                    for sm_logit, sm_length, sm_f, lm_mask, lm_f in \
+                        zip(logits, input_lengths, sm_feat, lm_attention_mask, lm_feat):
+
+                        # Generate sm_mask to filter out speech features
+                        logit_mask = torch.ones(sm_logit.shape[0], dtype=bool, device=sm_length.device)
+                        logit_mask[sm_length:] = False
+                        if self._interpolation_do_filter:
+                            sm_mask = ((sm_logit.argmax(1) < (self._vocab_size - 2)) & logit_mask)
+                            sm_mask = sm_mask if sm_mask.sum() > 1 else logit_mask
+                        else:
+                            sm_mask = logit_mask
+
+                        sm_f = sm_f[sm_mask]
+                        lm_f = lm_f[lm_mask.bool()]
+
+                        # Feature interpolation (SM -> LM)
+                        feature_adapted_sm_f = torch.tensordot(sm_f, self.feat_adapter, dims=([1], [0]))
+
+                        # Time interpolation (LM -> SM)
+                        time_adapted_lm_f = nn.functional.interpolate(
+                            input=torch.unsqueeze(lm_f, 0).permute(0, 2, 1),
+                            size=sm_f.shape[0],
+                            **self.temporal_adapter_kwargs)
+                        time_adapted_lm_f = time_adapted_lm_f.squeeze().permute(1, 0)
+
+                        # MSE Loss
                         feat_loss += nn.functional.mse_loss(
-                            outputs['hidden_states'][cfg['sm_index']], adapted_feat, reduction='mean',
-                        ) / len(self.feat_adapters_configs)
-                    loss += self._feat_loss_weight * feat_loss
+                            feature_adapted_sm_f, time_adapted_lm_f, reduction='mean',
+                        )
+
+                    loss += self._feat_loss_weight * feat_loss / logits.shape[0]
 
         return DistillLMOutput(
             loss=loss,

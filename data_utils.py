@@ -35,7 +35,35 @@ def load_datasets(name, language):
         show_random_elements(ds.remove_columns(["path", "audio"]))
         return ds
 
-    _process = {"common_voice": _common_voice_process}
+    def _mls_1h_process(sp, lang):
+        name = {"train": "train_1h", "validation": "dev", "test": "test"}[sp]
+        ds = load_dataset(
+            "../../..",
+            data_files=f"dataset_csv/mls_{lang}_{name}.csv",
+            # download_mode="force_redownload",
+            split="train"
+        )
+        ds = ds.map(remove_special_characters)
+        show_random_elements(ds)
+        return ds
+
+    def _mls_10h_process(sp, lang):
+        name = {"train": "train_1h", "validation": "dev", "test": "test"}[sp]
+        ds = load_dataset(
+            "../../..",
+            data_files=f"dataset_csv/mls_{lang}_{name}.csv",
+            # download_mode="force_redownload",
+            split="train"
+        )
+        ds = ds.map(remove_special_characters)
+        show_random_elements(ds)
+        return ds
+
+    _process = {
+        "common_voice": _common_voice_process,
+        "multilingual_librispeech_1h": _mls_1h_process,
+        "multilingual_librispeech_10h": _mls_10h_process,
+    }
     assert name in _process.keys()
 
     return tuple(_process[name](split, language) for split in ("train", "validation", "test"))
