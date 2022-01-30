@@ -11,10 +11,12 @@ from transformers.file_utils import ModelOutput
 class DistillTrainer(Trainer):
     def compute_loss(self, model, inputs, return_outputs=False):
         loss, outputs = super().compute_loss(model, inputs, return_outputs=True)
-        self.log({
-            'ctc_loss': outputs.ctc_loss.mean().item(),
-            'feat_loss': outputs.feat_loss.mean().item(),
-        })
+
+        log_data = {'ctc_loss': outputs.ctc_loss.mean().item()}
+        if outputs.feat_loss:
+            log_data['feat_loss'] = outputs.feat_loss.mean().item()
+        self.log(log_data)
+
         return (loss, {'logits': outputs.logits}) if return_outputs else loss
 
 
