@@ -7,8 +7,7 @@ from datasets import load_metric
 from omegaconf import OmegaConf
 from transformers import (AutoTokenizer, Trainer, TrainingArguments)
 
-from data_utils import (DataCollatorCTCWithPadding, cleanse_dataset,
-                        get_output_dir, get_processor, load_datasets)
+from data_utils import (get_output_dir, get_processor, load_datasets)
 from model_utils import Wav2Vec2ForDistill, DistillTrainer
 
 
@@ -37,23 +36,17 @@ def get_compute_metrics(processor):
 @hydra.main(config_path="config")
 def main(cfg):
     output_dir = get_output_dir(cfg)
-    train_ds, eval_ds, test_ds = load_datasets(**cfg.dataset)
+    (train_ds, eval_ds, test_ds), cleanser, collator = load_datasets(**cfg.dataset)
 
     (output_dir / "processor").mkdir(exist_ok=False, parents=False)
     processor = get_processor(output_dir / "processor", train_ds, eval_ds)
     lm_tokenizer = AutoTokenizer.from_pretrained(cfg.distill.lm_name)
 
-    _cleanse_ds = partial(cleanse_dataset, processor=processor, lm_tokenizer=lm_tokenizer)
+    _cleanse_ds = partial(cleanser, processor=processor, lm_tokenizer=lm_tokenizer)
     train_ds, eval_ds, test_ds = _cleanse_ds(train_ds), _cleanse_ds(eval_ds), _cleanse_ds(test_ds)
     print(f"Preparing done: {len(train_ds)}, {len(eval_ds)}, {len(test_ds)}")
 
-    data_collator = DataCollatorCTCWithPadding(
-        processor=processor,
-        lm_tokenizer=lm_tokenizer,
-        max_length=160000,
-        max_length_labels=100,
-        max_length_lm=100,
-    )
+    data_collator = collator(processor=processor, lm_tokenizer=lm_tokenizer)
 
     model = Wav2Vec2ForDistill.from_pretrained(
         **cfg.xlsr,

@@ -6,7 +6,7 @@ from collections import Counter
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
-from typing import Optional, Union
+from typing import Optional
 
 import pandas as pd
 from datasets import Audio, load_dataset
@@ -40,7 +40,7 @@ def load_datasets(name, language):
         ds = load_dataset(
             "../../..",
             data_files=f"dataset_csv/mls_{lang}_{name}.csv",
-            # download_mode="force_redownload",
+            download_mode="force_redownload",
             split="train"
         )
         ds = ds.map(remove_special_characters)
@@ -48,25 +48,34 @@ def load_datasets(name, language):
         return ds
 
     def _mls_10h_process(sp, lang):
-        name = {"train": "train_1h", "validation": "dev", "test": "test"}[sp]
+        name = {"train": "train_10h", "validation": "dev", "test": "test"}[sp]
         ds = load_dataset(
             "../../..",
             data_files=f"dataset_csv/mls_{lang}_{name}.csv",
-            # download_mode="force_redownload",
+            download_mode="force_redownload",
             split="train"
         )
         ds = ds.map(remove_special_characters)
         show_random_elements(ds)
         return ds
 
-    _process = {
-        "common_voice": _common_voice_process,
-        "multilingual_librispeech_1h": _mls_1h_process,
-        "multilingual_librispeech_10h": _mls_10h_process,
-    }
-    assert name in _process.keys()
+    processor, max_seconds = {
+        "common_voice": (_common_voice_process, 10),
+        "multilingual_librispeech_1h": (_mls_1h_process, 20),
+        "multilingual_librispeech_10h": (_mls_10h_process, 20),
+    }[name]
 
-    return tuple(_process[name](split, language) for split in ("train", "validation", "test"))
+    cleanser = partial(cleanse_dataset, max_seconds=max_seconds)
+    collator = partial(
+        DataCollatorCTCWithPadding,
+        max_length=16000 * max_seconds,
+        max_length_labels=10 * max_seconds,
+        max_length_lm=10 * max_seconds)
+    datasets = tuple(
+        processor(split, language)
+        for split in ("train", "validation", "test"))
+
+    return datasets, cleanser, collator
 
 
 def get_processor(save_dir, train_ds, eval_ds):
@@ -84,7 +93,7 @@ def get_processor(save_dir, train_ds, eval_ds):
     return processor
 
 
-def cleanse_dataset(ds, processor, lm_tokenizer):
+def cleanse_dataset(ds, processor, lm_tokenizer, max_seconds):
     ds = ds.cast_column("audio", Audio(sampling_rate=16_000))
 
     rand_int = random.randint(0, len(ds) - 1)
@@ -98,7 +107,7 @@ def cleanse_dataset(ds, processor, lm_tokenizer):
         remove_columns=ds.column_names, num_proc=1)
 
     print(f"Original dataset size: {len(ds)}")
-    ds = ds.filter(filter_too_long_audio, num_proc=1)
+    ds = ds.filter(partial(filter_too_long_audio, max_seconds=max_seconds), num_proc=1)
     print(f"Filtered dataset size: {len(ds)}")
 
     return ds
@@ -178,10 +187,10 @@ def remove_special_characters(
     return batch
 
 
-def filter_too_long_audio(batch):
-    return (len(batch["input_values"]) <= 160000) \
-        and (len(batch["lm_input_ids"]) <= 100) \
-        and (len(batch["labels"]) <= 100)
+def filter_too_long_audio(batch, max_seconds):
+    return (len(batch["input_values"]) <= 16000 * max_seconds) \
+        and (len(batch["lm_input_ids"]) <= 10 * max_seconds) \
+        and (len(batch["labels"]) <= 10 * max_seconds)
 
 
 def extract_all_chars(batch):

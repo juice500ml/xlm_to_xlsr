@@ -19,8 +19,8 @@ fp16: True
 fp16_full_eval: True
 
 # https://github.com/pytorch/fairseq/tree/7f5ec30/examples/wav2vec/xlsr
-per_device_train_batch_size: 12  # Need 2 GPUs for batch_size=24
-per_device_eval_batch_size: 16
+per_device_train_batch_size: 3  # Need 8 GPUs for batch_size=24
+per_device_eval_batch_size: 6
 gradient_accumulation_steps: 1
 
 # Inside the paper:
