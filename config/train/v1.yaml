@@ -8,8 +8,8 @@ seed: 42
 # https://github.com/pytorch/fairseq/blob/7f5ec30/examples/wav2vec/xlsr/config/finetune.yaml#L10-L14
 evaluation_strategy: steps
 save_strategy: steps
-save_steps: 1000
-eval_steps: 1000
+save_steps: 2000
+eval_steps: 2000
 metric_for_best_model: wer
 greater_is_better: False
 save_total_limit: 2

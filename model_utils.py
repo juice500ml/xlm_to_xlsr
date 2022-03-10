@@ -13,7 +13,7 @@ class DistillTrainer(Trainer):
         loss, outputs = super().compute_loss(model, inputs, return_outputs=True)
 
         log_data = {'ctc_loss': outputs.ctc_loss.mean().item()}
-        if outputs.feat_loss:
+        if outputs.feat_loss is not None:
             log_data['feat_loss'] = outputs.feat_loss.mean().item()
         self.log(log_data)
 
