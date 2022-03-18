@@ -5,7 +5,7 @@ lm_feat_size: 768
 sm_feat_size: 1024
 
 attn_loss: 0.0
-feat_loss: 0.25
+feat_loss: 1.0
 
 # w2v2: 25, infoxlm-base: 13
 name: shrink
@@ -16,5 +16,5 @@ feat_target:
 # feature interpolation
 interpolation:
   mode: nearest  # nearest, linear
-  filter_out_pad: True
+  filter_out_pad: False
   shrink: True

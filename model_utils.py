@@ -141,15 +141,14 @@ class Wav2Vec2ForDistill(Wav2Vec2ForCTC):
                         logit_mask = torch.ones(sm_logit.shape[0], dtype=bool, device=sm_length.device)
                         logit_mask[sm_length:] = False
 
-                        if self._interpolation_do_filter:
-                            sm_mask = ((sm_logit.argmax(1) < (self._vocab_size - 2)) & logit_mask)
-                            sm_mask = sm_mask if sm_mask.sum() > 1 else logit_mask
-                        else:
-                            sm_mask = logit_mask
-
-                        sm_f = sm_f[sm_mask]
-                        sm_logit = sm_logit[sm_mask]
+                        sm_f = sm_f[logit_mask]
+                        sm_logit = sm_logit[logit_mask]
                         lm_f = lm_f[lm_mask.bool()]
+
+                        if self._interpolation_do_filter:
+                            sm_mask = (sm_logit.argmax(1) < (self._vocab_size - 2))
+                            if sm_mask.sum() > 1:
+                                sm_f = sm_f[sm_mask]
 
                         if self._interpolation_do_shrink:
                             sm_f = self._shrink(sm_logit.argmax(1), sm_f)
@@ -180,8 +179,7 @@ class Wav2Vec2ForDistill(Wav2Vec2ForCTC):
             attentions=outputs.attentions if output_attentions else None,
         )
 
-    @staticmethod
-    def _shrink(logit_max, feats):
+    def _shrink(self, logit_max, feats):
         aligned_feats = []
 
         i = 0
@@ -189,7 +187,11 @@ class Wav2Vec2ForDistill(Wav2Vec2ForCTC):
             j = 1
             while (i + j) < len(logit_max) and logit_max[i + j].item() == logit_max[i].item():
                 j += 1
-            aligned_feats.append(feats[i:i + j].mean(0))
+            if logit_max[i].item() < self._vocab_size - 2:
+                aligned_feats.append(feats[i:i + j].mean(0))
             i += j
 
-        return torch.stack(aligned_feats)
+        if len(aligned_feats) > 1:
+            return torch.stack(aligned_feats)
+        else:
+            return feats
