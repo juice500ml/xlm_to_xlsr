@@ -59,18 +59,18 @@ def load_datasets(name, language):
         show_random_elements(ds)
         return ds
 
-    processor, max_seconds = {
-        "common_voice": (_common_voice_process, 10),
-        "multilingual_librispeech_1h": (_mls_1h_process, 20),
-        "multilingual_librispeech_10h": (_mls_10h_process, 20),
+    processor, max_seconds, num_proc = {
+        "common_voice": (_common_voice_process, 10, 1),
+        "multilingual_librispeech_1h": (_mls_1h_process, 20, 64),
+        "multilingual_librispeech_10h": (_mls_10h_process, 20, 64),
     }[name]
 
-    cleanser = partial(cleanse_dataset, max_seconds=max_seconds)
+    cleanser = partial(cleanse_dataset, max_seconds=max_seconds, num_proc=num_proc)
     collator = partial(
         DataCollatorCTCWithPadding,
         max_length=16000 * max_seconds,
-        max_length_labels=10 * max_seconds,
-        max_length_lm=10 * max_seconds)
+        max_length_labels=20 * max_seconds,
+        max_length_lm=20 * max_seconds)
     datasets = tuple(
         processor(split, language)
         for split in ("train", "validation", "test"))
@@ -93,7 +93,7 @@ def get_processor(save_dir, train_ds, eval_ds):
     return processor
 
 
-def cleanse_dataset(ds, processor, lm_tokenizer, max_seconds):
+def cleanse_dataset(ds, processor, lm_tokenizer, max_seconds, num_proc):
     ds = ds.cast_column("audio", Audio(sampling_rate=16_000))
 
     rand_int = random.randint(0, len(ds) - 1)
@@ -104,10 +104,10 @@ def cleanse_dataset(ds, processor, lm_tokenizer, max_seconds):
 
     ds = ds.map(
         partial(prepare_each_batch, processor=processor, lm_tokenizer=lm_tokenizer),
-        remove_columns=ds.column_names, num_proc=1)
+        remove_columns=ds.column_names, num_proc=num_proc)
 
     print(f"Original dataset size: {len(ds)}")
-    ds = ds.filter(partial(filter_too_long_audio, max_seconds=max_seconds), num_proc=1)
+    ds = ds.filter(partial(filter_too_long_audio, max_seconds=max_seconds), num_proc=num_proc)
     print(f"Filtered dataset size: {len(ds)}")
 
     return ds
@@ -189,8 +189,8 @@ def remove_special_characters(
 
 def filter_too_long_audio(batch, max_seconds):
     return (len(batch["input_values"]) <= 16000 * max_seconds) \
-        and (len(batch["lm_input_ids"]) <= 10 * max_seconds) \
-        and (len(batch["labels"]) <= 10 * max_seconds)
+        and (len(batch["lm_input_ids"]) <= 20 * max_seconds) \
+        and (len(batch["labels"]) <= 20 * max_seconds)
 
 
 def extract_all_chars(batch):

@@ -51,6 +51,7 @@ class Wav2Vec2ForDistill(Wav2Vec2ForCTC):
 
         if self._train_feat_loss:
             self._interpolation_do_filter = cfg['interpolation']['filter_out_pad']
+            self._interpolation_do_shrink = cfg['interpolation']['shrink']
             self.temporal_adapter_kwargs = dict(
                 mode=cfg['interpolation']['mode'],
                 align_corners=True if cfg['interpolation']['mode'] == 'linear' else None)
@@ -139,14 +140,18 @@ class Wav2Vec2ForDistill(Wav2Vec2ForCTC):
                         # Generate sm_mask to filter out speech features
                         logit_mask = torch.ones(sm_logit.shape[0], dtype=bool, device=sm_length.device)
                         logit_mask[sm_length:] = False
-                        if self._interpolation_do_filter:
-                            sm_mask = ((sm_logit.argmax(1) < (self._vocab_size - 2)) & logit_mask)
-                            sm_mask = sm_mask if sm_mask.sum() > 1 else logit_mask
-                        else:
-                            sm_mask = logit_mask
 
-                        sm_f = sm_f[sm_mask]
+                        sm_f = sm_f[logit_mask]
+                        sm_logit = sm_logit[logit_mask]
                         lm_f = lm_f[lm_mask.bool()]
+
+                        if self._interpolation_do_filter:
+                            sm_mask = (sm_logit.argmax(1) < (self._vocab_size - 2))
+                            if sm_mask.sum() > 1:
+                                sm_f = sm_f[sm_mask]
+
+                        if self._interpolation_do_shrink:
+                            sm_f = self._shrink(sm_logit.argmax(1), sm_f)
 
                         # Feature interpolation (SM -> LM)
                         feature_adapted_sm_f = torch.tensordot(sm_f, self.feat_adapter, dims=([1], [0]))
@@ -173,3 +178,20 @@ class Wav2Vec2ForDistill(Wav2Vec2ForCTC):
             hidden_states=outputs.hidden_states if output_hidden_states else None,
             attentions=outputs.attentions if output_attentions else None,
         )
+
+    def _shrink(self, logit_max, feats):
+        aligned_feats = []
+
+        i = 0
+        while i < len(logit_max):
+            j = 1
+            while (i + j) < len(logit_max) and logit_max[i + j].item() == logit_max[i].item():
+                j += 1
+            if logit_max[i].item() < self._vocab_size - 2:
+                aligned_feats.append(feats[i:i + j].mean(0))
+            i += j
+
+        if len(aligned_feats) > 1:
+            return torch.stack(aligned_feats)
+        else:
+            return feats

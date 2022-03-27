@@ -1,5 +1,5 @@
-name: vanilla
+name: random_init
 lm_name: xlm-roberta-base
 attn_loss: 0.0
 feat_loss: 0.0
-random_init: False
+random_init: True
