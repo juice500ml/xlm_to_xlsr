@@ -54,7 +54,10 @@ def main(cfg):
         vocab_size=len(processor.tokenizer),
         task_specific_params=OmegaConf.to_container(cfg.distill, resolve=True)
     )
-    model.freeze_feature_extractor()
+    if cfg.distill.random_init:
+        model.apply(model._init_weights)
+    else:
+        model.freeze_feature_extractor()
 
     training_args = TrainingArguments(
         **cfg.train,

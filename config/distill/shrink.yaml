@@ -18,3 +18,5 @@ interpolation:
   mode: nearest  # nearest, linear
   filter_out_pad: False
   shrink: True
+
+random_init: False
