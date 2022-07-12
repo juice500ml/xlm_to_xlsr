@@ -1,4 +1,5 @@
 # Distilling a Pretrained Language Model to a Multilingual ASR Model
+![plot](./resources/figure.png)
 - Official implementation of the paper: https://arxiv.org/abs/2206.12638
 - Accepted to Interspeech 2022.
 
