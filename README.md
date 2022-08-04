@@ -29,7 +29,7 @@ CUDA_VISIBLE_DEVICES=0,1 python3 train.py \
     +train=v1 \
     +xlsr=w2v2_xlsr
 ```
-**Fine-tuning + Distill-L2s**
+**Fine-tuning + Distill-L2S**
 ```bash
 # You have to set $lambda as the trade-off hyperparameter, i.e., 0.25, 0.5 or 1.0.
 CUDA_VISIBLE_DEVICES=0,1 python3 train.py \
