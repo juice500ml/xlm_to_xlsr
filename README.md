@@ -3,6 +3,12 @@
 - Official implementation of the paper: https://arxiv.org/abs/2206.12638
 - Accepted to Interspeech 2022.
 
+## Oral presentation @ Interspeech
+<a href="http://www.youtube.com/watch?feature=player_embedded&v=UgvXttxs_gs
+" target="_blank"><img src="http://img.youtube.com/vi/UgvXttxs_gs/0.jpg" 
+alt="presentation" width="360" height="270" border="10" /></a>
+
+
 ## How to run experiments (Table 1)
 **Environments**
 - I used Python 3.8.12.
